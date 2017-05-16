@@ -4,6 +4,8 @@ This repository is inspired by the [Image Retraining](https://github.com/tensorf
 
 The code adds untrained (depending on the number of classes) fully connected layers to the loaded InceptionV3 graph. The loaded InceptionV3 model is NOT FINE TUNED. It is only used to generate the features for the images. However, the fully connected layers are trained. 
 
+<b> Dataset </b>
+
 The code expects the data to be organized in a parent folder with images of different classes in different folders. 
 
 For Example, 
@@ -11,6 +13,6 @@ cifar10Dataset - Parent Directory
 cifar10Dataset/cat
 cifar10Dataset/dog
 
-To Do:
+<b> To Do </b>
 
 1) Add support for handling png images
