@@ -13,6 +13,6 @@ cifar10Dataset - Parent Directory
 cifar10Dataset/cat
 cifar10Dataset/dog
 
-<b> To Do </b>
+<b> ToDo </b>
 
 1) Add support for handling png images
