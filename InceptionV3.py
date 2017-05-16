@@ -21,7 +21,7 @@ class InceptionV3:
     			with tf.gfile.FastGFile(modelPath, 'rb') as f:
       				graph_def = tf.GraphDef()
       				graph_def.ParseFromString(f.read())
-      				self.bottleneckTensor, self.jpeg_data_tensor, resized_input_tensor = (tf.import_graph_def(graph_def, name='', return_elements=[BOTTLENECK_TENSOR_NAME, JPEG_DATA_TENSOR_NAME,RESIZED_INPUT_TENSOR_NAME]))
+      				self.bottleneckTensor, self.jpeg_data_tensor, resized_input_tensor, self.decoded_jpeg_data_tensor = (tf.import_graph_def(graph_def, name='', return_elements=[BOTTLENECK_TENSOR_NAME, JPEG_DATA_TENSOR_NAME,RESIZED_INPUT_TENSOR_NAME,DECODED_JPEG_DATA_TENSOR_NAME]))
 
 	def add_final_training_ops(self,class_count, final_tensor_name, learningRate):
 		with tf.name_scope('input'):
@@ -65,6 +65,7 @@ class InceptionV3:
 		return accuracy,crossEntropyValue
 
 	def run_bottleneck_on_image(self,sess, image_data):
-	  bottleneck_values = sess.run(self.bottleneckTensor,{self.jpeg_data_tensor: image_data})
+	  #bottleneck_values = sess.run(self.bottleneckTensor,{self.jpeg_data_tensor: image_data})
+	  bottleneck_values = sess.run(self.bottleneckTensor,{self.decoded_jpeg_data_tensor: image_data})
 	  bottleneck_values = np.squeeze(bottleneck_values)
 	  return bottleneck_values
