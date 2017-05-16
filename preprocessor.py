@@ -6,6 +6,7 @@ from constants import *
 from six.moves import urllib
 import sys
 import numpy as np
+from PIL import Image
 
 def setupSummariesDirectory(summariesDir):
 	# Setup the directory we'll write summaries to for TensorBoard
@@ -133,7 +134,9 @@ def create_bottleneck_file(bottleneck_path, image_lists, label_name, index,
                               image_dir, category)
   if not tf.gfile.Exists(image_path):
     tf.logging.fatal('File does not exist %s', image_path)
-  image_data = tf.gfile.FastGFile(image_path, 'rb').read()
+  #image_data = tf.gfile.FastGFile(image_path, 'rb').read()
+  image = Image.open(image_path)
+  image_data = image.convert('RGB')
   try:
     bottleneck_values = inceptionV3Model.run_bottleneck_on_image(
         sess, image_data)
@@ -247,8 +250,7 @@ def get_random_cached_bottlenecks(sess, image_lists, how_many, category,
                                     image_dir, category)
         bottleneck = get_or_create_bottleneck(sess, image_lists, label_name,
                                               image_index, image_dir, category,
-                                              bottleneck_dir, jpeg_data_tensor,
-                                              bottleneck_tensor)
+                                              bottleneck_dir,inceptionV3Model)
         ground_truth = np.zeros(class_count, dtype=np.float32)
         ground_truth[label_index] = 1.0
         bottlenecks.append(bottleneck)
