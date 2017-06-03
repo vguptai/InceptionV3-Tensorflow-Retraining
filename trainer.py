@@ -4,6 +4,71 @@ from constants import *
 from InceptionV3 import *
 import os.path
 from datetime import datetime
+from DatasetBatcher import *
+from DatasetManager import *
+
+def create_inception_graph(numClasses,FLAGS):
+    modelFilePath = os.path.join(FLAGS.imagenet_inception_model_dir, INCEPTION_MODEL_GRAPH_DEF_FILE)
+    inceptionV3 = InceptionV3(modelFilePath)
+    inceptionV3.add_final_training_ops(numClasses,FLAGS.final_tensor_name,FLAGS.learning_rate)
+    inceptionV3.add_evaluation_step()
+    return inceptionV3
+
+def train_an_epoch(sess,inceptionV3,datasetBatcher,FLAGS):
+    datasetBatcher.reset_training_offset()
+    train_image_paths,train_ground_truth,train_labels = datasetBatcher.get_next_training_batch(FLAGS.train_batch_size)
+    while train_image_paths is not None:
+        train_bottlenecks = DatasetManager.get_random_cached_bottlenecks_new(sess,train_image_paths,train_labels,FLAGS.bottleneck_dir,inceptionV3)
+        inceptionV3.train_step(sess,train_bottlenecks,train_ground_truth)
+        train_image_paths,train_ground_truth,train_labels = datasetBatcher.get_next_training_batch(FLAGS.train_batch_size)
+    datasetBatcher.reset_training_offset()
+
+def get_next_batch(phase,datasetBatcher):
+    if phase == "training":
+        image_paths,ground_truth,labels = datasetBatcher.get_next_training_batch(FLAGS.train_batch_size)
+    elif phase == "testing":
+        image_paths,ground_truth,labels = datasetBatcher.get_next_testing_batch(FLAGS.test_batch_size)
+    elif phase == "validation":
+        image_paths,ground_truth,labels = datasetBatcher.get_next_validation_batch(FLAGS.validation_batch_size)
+    return image_paths,ground_truth,labels
+
+def evaluate_accuracy(sess,phase,inceptionV3,datasetBatcher,FLAGS,epoch_index):
+    if phase == "training":
+        datasetBatcher.reset_training_offset()
+    elif phase == "testing":
+        datasetBatcher.reset_testing_offset()
+    elif phase == "validation":
+        datasetBatcher.reset_validation_offset()
+
+    image_paths,ground_truth,labels = get_next_batch(phase,datasetBatcher)
+    batch_index = 0
+    accuracy = 0
+    cross_entropy_value = 0
+    num_samples = 0
+    while image_paths is not None:
+        batch_index = batch_index + 1
+        bottlenecks = DatasetManager.get_random_cached_bottlenecks_new(sess,image_paths,labels,FLAGS.bottleneck_dir,inceptionV3)
+        accuracy_batch, cross_entropy_value_batch = inceptionV3.evaluate(sess,bottlenecks,ground_truth)
+        num_samples = num_samples + len(bottlenecks)
+        accuracy = accuracy + accuracy_batch
+        cross_entropy_value = cross_entropy_value + cross_entropy_value_batch
+        image_paths,ground_truth,labels = get_next_batch(phase,datasetBatcher)
+
+    print('%s: Step %d: %s Accuracy = %.1f%%' % (datetime.now(), epoch_index,phase,accuracy * 100/batch_index))
+    print('%s: Step %d: %s Cross entropy = %f' % (datetime.now(), epoch_index,phase,cross_entropy_value/batch_index))
+
+def train_graph(inceptionV3,datasetBatcher,FLAGS):
+    with tf.Session(graph=inceptionV3.inceptionGraph) as sess:
+        init = tf.global_variables_initializer()
+        sess.run(init)
+        for i in range(FLAGS.how_many_training_steps):
+            train_an_epoch(sess,inceptionV3,datasetBatcher,FLAGS)
+            is_last_step = (i + 1 == FLAGS.how_many_training_steps)
+            if (i % FLAGS.eval_step_interval) == 0 or is_last_step:
+                evaluate_accuracy(sess,"training",inceptionV3,datasetBatcher,FLAGS,i)
+                evaluate_accuracy(sess,"validation",inceptionV3,datasetBatcher,FLAGS,i)
+        evaluate_accuracy(sess,"testing",inceptionV3,datasetBatcher,FLAGS,i)
+
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
@@ -34,7 +99,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--how_many_training_steps',
       type=int,
-      default=4000,
+      default=100,
       help='How many training steps to run before ending.'
   )
   parser.add_argument(
@@ -70,7 +135,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--test_batch_size',
       type=int,
-      default=-1,
+      default=100,
       help="""\
       How many images to test on. This test set is only used once, to evaluate
       the final accuracy of the model after training completes.
@@ -160,32 +225,12 @@ if __name__ == '__main__':
   )
 
   FLAGS, unparsed = parser.parse_known_args()
+  preprocessor.setup(FLAGS)
 
-  imageMap = preprocessor.setup(FLAGS)
+  imageMap = DatasetManager.readDataset(FLAGS)
   numClasses = len(imageMap.keys())
-  modelFilePath = os.path.join(FLAGS.imagenet_inception_model_dir, INCEPTION_MODEL_GRAPH_DEF_FILE)
-  inceptionV3 = InceptionV3(modelFilePath)
-  inceptionV3.add_final_training_ops(numClasses,FLAGS.final_tensor_name,FLAGS.learning_rate)
-  inceptionV3.add_evaluation_step()
 
-  with tf.Session(graph=inceptionV3.inceptionGraph) as sess:
-      init = tf.global_variables_initializer()
-      sess.run(init)
-      for i in range(FLAGS.how_many_training_steps):
+  datasetBatcher = DatasetBatcher(imageMap,FLAGS.image_dir)
 
-           train_bottlenecks,train_ground_truth, _ = preprocessor.get_random_cached_bottlenecks(sess, imageMap, FLAGS.train_batch_size, 'training',FLAGS.bottleneck_dir, FLAGS.image_dir, inceptionV3)
-           inceptionV3.train_step(sess,train_bottlenecks,train_ground_truth)
-
-           is_last_step = (i + 1 == FLAGS.how_many_training_steps)
-           if (i % FLAGS.eval_step_interval) == 0 or is_last_step:
-               trainAccuracy, crossEntropyValue = inceptionV3.evaluate(sess,train_bottlenecks,train_ground_truth)
-               print('%s: Step %d: Train accuracy = %.1f%%' % (datetime.now(), i,trainAccuracy * 100))
-               print('%s: Step %d: Cross entropy = %f' % (datetime.now(), i,crossEntropyValue))
-
-               val_bottlenecks, val_ground_truth, _ = preprocessor.get_random_cached_bottlenecks(sess, imageMap, FLAGS.validation_batch_size, 'validation',FLAGS.bottleneck_dir, FLAGS.image_dir, inceptionV3)
-               valAccuracy, crossEntropyValue = inceptionV3.evaluate(sess,val_bottlenecks,val_ground_truth)
-               print('%s: Step %d: Validation accuracy = %.1f%% (N=%d)' %(datetime.now(), i, valAccuracy * 100,len(val_bottlenecks)))
-
-      test_bottlenecks, test_ground_truth, _ = preprocessor.get_random_cached_bottlenecks(sess, imageMap, FLAGS.test_batch_size,'testing', FLAGS.bottleneck_dir,FLAGS.image_dir, inceptionV3)
-      testAccuracy, crossEntropyValue = inceptionV3.evaluate(sess,test_bottlenecks,test_ground_truth)
-      print('Final test accuracy = %.1f%% (N=%d)' % (testAccuracy * 100, len(test_bottlenecks)))
+  inceptionV3 = create_inception_graph(numClasses,FLAGS)
+  train_graph(inceptionV3,datasetBatcher,FLAGS)
