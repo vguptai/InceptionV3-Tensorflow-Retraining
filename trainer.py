@@ -5,7 +5,9 @@ from InceptionV3 import *
 import os.path
 from datetime import datetime
 from DatasetBatcher import *
-from DatasetManager import *
+import DatasetManager as DatasetManager
+from tensorflow.python.framework import graph_util
+import time
 
 def create_inception_graph(numClasses,FLAGS):
     modelFilePath = os.path.join(FLAGS.imagenet_inception_model_dir, INCEPTION_MODEL_GRAPH_DEF_FILE)
@@ -54,8 +56,13 @@ def evaluate_accuracy(sess,phase,inceptionV3,datasetBatcher,FLAGS,epoch_index):
         cross_entropy_value = cross_entropy_value + cross_entropy_value_batch
         image_paths,ground_truth,labels = get_next_batch(phase,datasetBatcher)
 
-    print('%s: Step %d: %s Accuracy = %.1f%%' % (datetime.now(), epoch_index,phase,accuracy * 100/batch_index))
-    print('%s: Step %d: %s Cross entropy = %f' % (datetime.now(), epoch_index,phase,cross_entropy_value/batch_index))
+    if batch_index == 0:
+        print "No samples to evaluate in this phase:" + phase
+    else:
+        accuracy = accuracy * 100/batch_index
+        print('%s: Step %d: %s Accuracy = %.1f%%' % (datetime.now(), epoch_index,phase,accuracy))
+        print('%s: Step %d: %s Cross entropy = %f' % (datetime.now(), epoch_index,phase,cross_entropy_value/batch_index))
+    return accuracy,cross_entropy_value
 
 def train_graph(inceptionV3,datasetBatcher,FLAGS):
     with tf.Session(graph=inceptionV3.inceptionGraph) as sess:
@@ -65,10 +72,20 @@ def train_graph(inceptionV3,datasetBatcher,FLAGS):
             train_an_epoch(sess,inceptionV3,datasetBatcher,FLAGS)
             is_last_step = (i + 1 == FLAGS.how_many_training_steps)
             if (i % FLAGS.eval_step_interval) == 0 or is_last_step:
-                evaluate_accuracy(sess,"training",inceptionV3,datasetBatcher,FLAGS,i)
-                evaluate_accuracy(sess,"validation",inceptionV3,datasetBatcher,FLAGS,i)
+                train_accuracy,_ = evaluate_accuracy(sess,"training",inceptionV3,datasetBatcher,FLAGS,i)
+                validation_accuracy,_ = evaluate_accuracy(sess,"validation",inceptionV3,datasetBatcher,FLAGS,i)
+                suffix = "_"+str(train_accuracy)+"_"+str(validation_accuracy)
+                save_graph(sess,inceptionV3.inceptionGraph,suffix,FLAGS)
         evaluate_accuracy(sess,"testing",inceptionV3,datasetBatcher,FLAGS,i)
+        save_graph(sess,inceptionV3.inceptionGraph,"_final",FLAGS)
 
+def save_graph(sess,graph,suffix,FLAGS):
+    output_graph_def = graph_util.convert_variables_to_constants(
+        sess, graph.as_graph_def(), [FLAGS.final_tensor_name])
+    output_graph_path = FLAGS.output_graph+"_"+str(int(time.time()))+suffix
+    print "Saving the graph at:"+ output_graph_path
+    with tf.gfile.FastGFile(output_graph_path, 'wb') as f:
+      f.write(output_graph_def.SerializeToString())
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
@@ -81,7 +98,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--output_graph',
       type=str,
-      default='/tmp/output_graph.pb',
+      default='./tmp/output_graph.pb',
       help='Where to save the trained graph.'
   )
   parser.add_argument(
@@ -99,7 +116,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--how_many_training_steps',
       type=int,
-      default=100,
+      default=1,
       help='How many training steps to run before ending.'
   )
   parser.add_argument(
@@ -111,7 +128,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--testing_percentage',
       type=int,
-      default=10,
+      default=0,
       help='What percentage of images to use as a test set.'
   )
   parser.add_argument(
