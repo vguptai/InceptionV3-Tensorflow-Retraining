@@ -8,6 +8,11 @@ import sys
 import numpy as np
 from PIL import Image
 
+def save_labels(FLAGS,image_map):
+    print "Saving labels at:"+FLAGS.output_labels
+    with tf.gfile.FastGFile(FLAGS.output_labels, 'w') as f:
+      f.write('\n'.join(image_map.keys()) + '\n')
+
 def splitInTrainTestValSet(fileList,testPercentage,validationPercentage):
   totalFiles = len(fileList)
   random.shuffle(fileList)
@@ -301,6 +306,7 @@ def get_random_cached_bottlenecks(sess, image_lists, how_many, category,
   return bottlenecks, ground_truths, filenames
 
 def readDataset(FLAGS):
-	# Look at the folder structure, and create lists of all the images.
-  	imageMap = create_image_lists(FLAGS.image_dir, FLAGS.testing_percentage,FLAGS.validation_percentage)
-	return imageMap
+    # Look at the folder structure, and create lists of all the images.
+    imageMap = create_image_lists(FLAGS.image_dir, FLAGS.testing_percentage,FLAGS.validation_percentage)
+    save_labels(FLAGS,imageMap)
+    return imageMap

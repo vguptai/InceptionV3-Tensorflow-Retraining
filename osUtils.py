@@ -18,6 +18,18 @@ def getFilesFromDirectoriesWithExtension(directoryPaths,extensionList):
 		fileListMap[os.path.basename(directoryPath)] = fileList
 	return fileListMap
 
+def get_images_from_directory(directoryPath):
+	extensions = ['jpg', 'jpeg', 'JPG', 'JPEG', 'png', 'PNG']
+	fileList = getFilePathsFromDirectoryWithExtension(directoryPath,extensions)
+	return fileList
+
+def getFilePathsFromDirectoryWithExtension(directoryPath,extensionList):
+	file_paths = []
+	for extension in extensionList:
+		fileGlob = os.path.join(directoryPath, '*.' + extension)
+		file_paths.extend(tf.gfile.Glob(fileGlob))
+	return file_paths
+
 def ensure_dir_exists(dir_name):
   if not os.path.exists(dir_name):
     os.makedirs(dir_name)
