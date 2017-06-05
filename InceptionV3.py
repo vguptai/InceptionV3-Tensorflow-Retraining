@@ -32,7 +32,6 @@ class InceptionV3:
 			    self.bottleneckInput = tf.placeholder_with_default(self.bottleneckTensor, shape=[None, BOTTLENECK_TENSOR_SIZE],name='BottleneckInputPlaceholder')
 			    self.groundTruthInput = tf.placeholder(tf.float32,[None, class_count],name='GroundTruthInput')
 
-
 			layer_name = 'final_minus_1_training_ops'
 			with tf.name_scope(layer_name):
 				with tf.name_scope('weights'):
