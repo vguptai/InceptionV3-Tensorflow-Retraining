@@ -305,6 +305,52 @@ def get_random_cached_bottlenecks(sess, image_lists, how_many, category,
         filenames.append(image_name)
   return bottlenecks, ground_truths, filenames
 
+def get_random_distorted_bottlenecks(
+    sess, image_paths, inceptionV3Model):
+  """Retrieves bottleneck values for training images, after distortions.
+  If we're training with distortions like crops, scales, or flips, we have to
+  recalculate the full model for every image, and so we can't use cached
+  bottleneck values. Instead we find random images for the requested category,
+  run them through the distortion graph, and then the full graph to get the
+  bottleneck results for each.
+  Args:
+    sess: Current TensorFlow Session.
+    image_paths: List of image paths.
+    input_jpeg_tensor: The input layer we feed the image data to.
+    distorted_image: The output node of the distortion graph.
+  Returns:
+    List of bottleneck arrays and their corresponding ground truths.
+  """
+  bottlenecks = []
+  for i in range(len(image_paths)):
+      image = Image.open(image_paths[i])
+      image_data = image.convert('RGB')
+      distorted_image_data = inceptionV3Model.distort_image(sess,image_data)
+      try:
+        bottleneck = inceptionV3Model.run_bottleneck_on_image(sess, distorted_image_data)
+        bottlenecks.append(bottleneck)
+      except Exception as e:
+        print e
+        raise RuntimeError('Error during processing file %s' % image_paths[i])
+  return bottlenecks
+
+
+def should_distort_images(FLAGS):
+    """Whether any distortions are enabled, from the input flags.
+    Args:
+    flip_left_right: Boolean whether to randomly mirror images horizontally.
+    random_crop: Integer percentage setting the total margin used around the
+    crop box.
+    random_scale: Integer percentage of how much to vary the scale by.
+    random_brightness: Integer range to randomly multiply the pixel values by.
+    Returns:
+    Boolean value indicating whether any distortions should be applied.
+    """
+    if(FLAGS.apply_distortions):
+        return (FLAGS.flip_left_right or (FLAGS.random_crop != 0) or (FLAGS.random_scale != 0) or (FLAGS.random_brightness != 0))
+    else:
+        return False
+
 def readDataset(FLAGS):
     # Look at the folder structure, and create lists of all the images.
     imageMap = create_image_lists(FLAGS.image_dir, FLAGS.testing_percentage,FLAGS.validation_percentage)

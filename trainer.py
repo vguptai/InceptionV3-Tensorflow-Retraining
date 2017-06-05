@@ -8,6 +8,7 @@ from DatasetBatcher import *
 import DatasetManager as DatasetManager
 from tensorflow.python.framework import graph_util
 import time
+from osUtils import *
 
 def create_inception_graph(numClasses,FLAGS):
     modelFilePath = os.path.join(FLAGS.imagenet_inception_model_dir, INCEPTION_MODEL_GRAPH_DEF_FILE)
@@ -16,11 +17,18 @@ def create_inception_graph(numClasses,FLAGS):
     inceptionV3.add_evaluation_step()
     return inceptionV3
 
+def setup_image_distortion_ops(inceptionV3,FLAGS):
+    if DatasetManager.should_distort_images(FLAGS):
+        inceptionV3.add_input_distortions(FLAGS.flip_left_right, FLAGS.random_crop,FLAGS.random_scale, FLAGS.random_brightness)
+
 def train_an_epoch(sess,inceptionV3,datasetBatcher,FLAGS):
     datasetBatcher.reset_training_offset()
     train_image_paths,train_ground_truth,train_labels = datasetBatcher.get_next_training_batch(FLAGS.train_batch_size)
     while train_image_paths is not None:
-        train_bottlenecks = DatasetManager.get_random_cached_bottlenecks_new(sess,train_image_paths,train_labels,FLAGS.bottleneck_dir,inceptionV3)
+        if DatasetManager.should_distort_images(FLAGS):
+            train_bottlenecks = DatasetManager.get_random_distorted_bottlenecks(sess,train_image_paths,inceptionV3)
+        else:
+            train_bottlenecks = DatasetManager.get_random_cached_bottlenecks_new(sess,train_image_paths,train_labels,FLAGS.bottleneck_dir,inceptionV3)
         inceptionV3.train_step(sess,train_bottlenecks,train_ground_truth)
         train_image_paths,train_ground_truth,train_labels = datasetBatcher.get_next_training_batch(FLAGS.train_batch_size)
     datasetBatcher.reset_training_offset()
@@ -66,23 +74,27 @@ def evaluate_accuracy(sess,phase,inceptionV3,datasetBatcher,FLAGS,epoch_index):
 
 def train_graph(inceptionV3,datasetBatcher,FLAGS):
     with tf.Session(graph=inceptionV3.inceptionGraph) as sess:
+        start_time = str(int(time.time()))
         init = tf.global_variables_initializer()
         sess.run(init)
         for i in range(FLAGS.how_many_training_steps):
+            print "Epoch..."+str(i)+"/"+str(FLAGS.how_many_training_steps)
             train_an_epoch(sess,inceptionV3,datasetBatcher,FLAGS)
             is_last_step = (i + 1 == FLAGS.how_many_training_steps)
             if (i % FLAGS.eval_step_interval) == 0 or is_last_step:
                 train_accuracy,_ = evaluate_accuracy(sess,"training",inceptionV3,datasetBatcher,FLAGS,i)
                 validation_accuracy,_ = evaluate_accuracy(sess,"validation",inceptionV3,datasetBatcher,FLAGS,i)
-                suffix = "_"+str(train_accuracy)+"_"+str(validation_accuracy)
-                save_graph(sess,inceptionV3.inceptionGraph,suffix,FLAGS)
+                model_name = "model_"+str(train_accuracy)+"_"+str(validation_accuracy)+".pb"
+                save_graph(sess,inceptionV3.inceptionGraph,start_time,model_name,FLAGS)
         evaluate_accuracy(sess,"testing",inceptionV3,datasetBatcher,FLAGS,i)
-        save_graph(sess,inceptionV3.inceptionGraph,"_final",FLAGS)
+        save_graph(sess,inceptionV3.inceptionGraph,start_time,"model_final.pb",FLAGS)
 
-def save_graph(sess,graph,suffix,FLAGS):
+def save_graph(sess,graph,prefix,model_name,FLAGS):
     output_graph_def = graph_util.convert_variables_to_constants(
         sess, graph.as_graph_def(), [FLAGS.final_tensor_name])
-    output_graph_path = FLAGS.output_graph+"_"+str(int(time.time()))+suffix
+    sub_dir_path = os.path.join(FLAGS.output_graph, prefix)
+    ensure_dir_exists(sub_dir_path)
+    output_graph_path = os.path.join(sub_dir_path,model_name)
     print "Saving the graph at:"+ output_graph_path
     with tf.gfile.FastGFile(output_graph_path, 'wb') as f:
       f.write(output_graph_def.SerializeToString())
@@ -98,7 +110,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--output_graph',
       type=str,
-      default='./tmp/output_graph.pb',
+      default='./tmp/output_graph',
       help='Where to save the trained graph.'
   )
   parser.add_argument(
@@ -116,7 +128,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--how_many_training_steps',
       type=int,
-      default=1,
+      default=500,
       help='How many training steps to run before ending.'
   )
   parser.add_argument(
@@ -206,8 +218,15 @@ if __name__ == '__main__':
       """
   )
   parser.add_argument(
-      '--flip_left_right',
+      '--apply_distortions',
       default=False,
+      help="""\
+      Apply distortions to images while training.\
+      """
+  )
+  parser.add_argument(
+      '--flip_left_right',
+      default=True,
       help="""\
       Whether to randomly flip half of the training images horizontally.\
       """,
@@ -216,7 +235,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--random_crop',
       type=int,
-      default=0,
+      default=20,
       help="""\
       A percentage determining how much of a margin to randomly crop off the
       training images.\
@@ -225,7 +244,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--random_scale',
       type=int,
-      default=0,
+      default=20,
       help="""\
       A percentage determining how much to randomly scale up the size of the
       training images by.\
@@ -234,7 +253,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--random_brightness',
       type=int,
-      default=0,
+      default=20,
       help="""\
       A percentage determining how much to randomly multiply the training image
       input pixels up or down by.\
@@ -250,4 +269,6 @@ if __name__ == '__main__':
   datasetBatcher = DatasetBatcher(imageMap,FLAGS.image_dir)
 
   inceptionV3 = create_inception_graph(numClasses,FLAGS)
+  setup_image_distortion_ops(inceptionV3,FLAGS)
+
   train_graph(inceptionV3,datasetBatcher,FLAGS)
