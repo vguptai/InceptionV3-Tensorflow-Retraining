@@ -334,7 +334,6 @@ def get_random_distorted_bottlenecks(
         raise RuntimeError('Error during processing file %s' % image_paths[i])
   return bottlenecks
 
-
 def should_distort_images(FLAGS):
     """Whether any distortions are enabled, from the input flags.
     Args:
