@@ -36,12 +36,12 @@ class InceptionV3:
 			layer_name = 'final_minus_1_training_ops'
 			with tf.name_scope(layer_name):
 				with tf.name_scope('weights'):
-			    	initial_value_final_minus_1 = tf.truncated_normal([BOTTLENECK_TENSOR_SIZE, FINAL_MINUS_1_LAYER_SIZE],stddev=0.001)
-			      	layer_weights_final_minus_1 = tf.Variable(initial_value_final_minus_1, name='final_weights')
-			    with tf.name_scope('biases'):
-			      	layer_biases_final_minus_1 = tf.Variable(tf.zeros([FINAL_MINUS_1_LAYER_SIZE]), name='final_biases')
-			    with tf.name_scope('Wx_plus_b'):
-			      	logits_final_minus_1 = tf.matmul(self.bottleneckInput, layer_weights_final_minus_1) + layer_biases_final_minus_1
+					initial_value_final_minus_1 = tf.truncated_normal([BOTTLENECK_TENSOR_SIZE, FINAL_MINUS_1_LAYER_SIZE],stddev=0.001)
+					layer_weights_final_minus_1 = tf.Variable(initial_value_final_minus_1, name='final_weights')
+				with tf.name_scope('biases'):
+					layer_biases_final_minus_1 = tf.Variable(tf.zeros([FINAL_MINUS_1_LAYER_SIZE]), name='final_biases')
+				with tf.name_scope('Wx_plus_b'):
+					logits_final_minus_1 = tf.matmul(self.bottleneckInput, layer_weights_final_minus_1) + layer_biases_final_minus_1
 
 			layer_name = 'final_training_ops'
 			with tf.name_scope(layer_name):
