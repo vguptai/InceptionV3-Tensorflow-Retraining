@@ -32,15 +32,26 @@ class InceptionV3:
 			    self.bottleneckInput = tf.placeholder_with_default(self.bottleneckTensor, shape=[None, BOTTLENECK_TENSOR_SIZE],name='BottleneckInputPlaceholder')
 			    self.groundTruthInput = tf.placeholder(tf.float32,[None, class_count],name='GroundTruthInput')
 
+
+			layer_name = 'final_minus_1_training_ops'
+			with tf.name_scope(layer_name):
+				with tf.name_scope('weights'):
+			    	initial_value_final_minus_1 = tf.truncated_normal([BOTTLENECK_TENSOR_SIZE, FINAL_MINUS_1_LAYER_SIZE],stddev=0.001)
+			      	layer_weights_final_minus_1 = tf.Variable(initial_value_final_minus_1, name='final_weights')
+			    with tf.name_scope('biases'):
+			      	layer_biases_final_minus_1 = tf.Variable(tf.zeros([FINAL_MINUS_1_LAYER_SIZE]), name='final_biases')
+			    with tf.name_scope('Wx_plus_b'):
+			      	logits_final_minus_1 = tf.matmul(self.bottleneckInput, layer_weights_final_minus_1) + layer_biases_final_minus_1
+
 			layer_name = 'final_training_ops'
 			with tf.name_scope(layer_name):
 			    with tf.name_scope('weights'):
-			    	initial_value = tf.truncated_normal([BOTTLENECK_TENSOR_SIZE, class_count],stddev=0.001)
+			    	initial_value = tf.truncated_normal([FINAL_MINUS_1_LAYER_SIZE, class_count],stddev=0.001)
 			      	layer_weights = tf.Variable(initial_value, name='final_weights')
 			    with tf.name_scope('biases'):
 			      	layer_biases = tf.Variable(tf.zeros([class_count]), name='final_biases')
 			    with tf.name_scope('Wx_plus_b'):
-			      	logits = tf.matmul(self.bottleneckInput, layer_weights) + layer_biases
+			      	logits = tf.matmul(logits_final_minus_1, layer_weights) + layer_biases
 
 			self.finalTensor = tf.nn.softmax(logits, name=final_tensor_name)
 			with tf.name_scope('cross_entropy'):
