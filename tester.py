@@ -5,6 +5,7 @@ import tensorflow as tf
 from PIL import Image
 from osUtils import *
 from collections import OrderedDict
+import numpy as np
 
 parser = argparse.ArgumentParser()
 
@@ -17,7 +18,7 @@ parser.add_argument(
 parser.add_argument(
     '--path_to_graph',
     type=str,
-    default='./tmp/output_graph.pb',
+    default='./tmp/output_graph/1496559461/model_94.4044449329_90.8400014639.pb',
     help='Absolute path to graph file (.pb)')
 
 parser.add_argument(
@@ -48,9 +49,9 @@ def load_labels(filename):
   """Read in labels, one label per line."""
   return [line.rstrip() for line in tf.gfile.GFile(filename)]
 
-def run_graph(image_data, labels, input_layer_name, output_layer_name,
+def run_graph(sess, image_data, labels, input_layer_name, output_layer_name,
               num_top_predictions):
-  with tf.Session() as sess:
+
     # Feed the image_data as input to the graph.
     #   predictions  will contain a two-dimensional array, where one
     #   dimension represents the input image count, and the other has
@@ -68,11 +69,42 @@ def run_graph(image_data, labels, input_layer_name, output_layer_name,
       #print('%s (score = %.5f)' % (human_string, score))
     return human_string
 
-"Classify a file"
-def label_a_file(file_path,labels,FLAGS):
-    image_data = load_image("./cifar10Dataset/airplane/30.png")
-    return run_graph(image_data, labels, DECODED_JPEG_DATA_TENSOR_NAME, FLAGS.output_layer,
+"""
+Classify a file
+"""
+def label_a_file(sess,file_path,labels,FLAGS):
+    image_data = load_image(file_path)
+    return run_graph(sess, image_data, labels, DECODED_JPEG_DATA_TENSOR_NAME, FLAGS.output_layer,
               FLAGS.num_top_predictions)
+
+
+"""
+Classify files by batching - Looks like it is not supported right now.
+"""
+def label_files(sess,file_paths,labels,FLAGS):
+    image_datas = []
+    for file_path in file_paths:
+        image_datas.append(np.asarray(load_image(file_path)))
+    image_datas = np.array(image_datas)
+    return run_graph(sess, image_datas, labels, DECODED_JPEG_DATA_TENSOR_NAME, FLAGS.output_layer,
+              FLAGS.num_top_predictions)
+
+"""
+Simple test function to classify a batch of images
+"""
+def test_batch():
+    file_path1 = "./cifar10Dataset/airplane/30.png"
+    file_path2 = "./cifar10Dataset/airplane/31.png"
+
+    file_paths = []
+    file_paths.append(file_path1)
+    file_paths.append(file_path2)
+
+    labels = load_labels(FLAGS.labels)
+    load_graph(FLAGS.path_to_graph)
+    with tf.Session() as sess:
+        label_files(sess,file_paths,labels,FLAGS)
+
 
 """
 Simple test function to classify an image
@@ -81,7 +113,8 @@ def test():
     file_path = "./cifar10Dataset/airplane/30.png"
     labels = load_labels(FLAGS.labels)
     load_graph(FLAGS.path_to_graph)
-    label_a_file(file_path,labels,FLAGS)
+    with tf.Session() as sess:
+        label_a_file(sess,file_path,labels,FLAGS)
 
 """
 Classify the images present in the test folder and dump the results
@@ -91,16 +124,17 @@ def kaggle_test():
     labels = load_labels(FLAGS.labels)
     load_graph(FLAGS.path_to_graph)
     print "Reading test images..."
-    file_paths = get_images_from_directory("TestData")
+    file_paths = get_images_from_directory("../Kaggle-CIFAR-Dataset/test")
     label_map = {}
     total_files = len(file_paths)
-    print "Number of files to be classified..."
-    file_index = 0
-    for file_path in file_paths:
-        file_index = file_index + 1
-        print "Labelling files..."+str(file_index)+"/"+str(total_files)
-        label = label_a_file(file_path,labels,FLAGS)
-        label_map[int(os.path.basename(file_path).split(".")[0])] = label
+    with tf.Session() as sess:
+        print "Number of files to be classified..."+str(total_files)
+        file_index = 0
+        for file_path in file_paths:
+            file_index = file_index + 1
+            print "Labelling files..."+str(file_index)+"/"+str(total_files)
+            label = label_a_file(sess,file_path,labels,FLAGS)
+            label_map[int(os.path.basename(file_path).split(".")[0])] = label
     print "Finished classifiying images..."
     label_map = OrderedDict(sorted(label_map.items(), key=lambda t: t[0]))
     print "Writing results in file..."
@@ -122,4 +156,5 @@ def createKaggleSubmissionFile(label_map):
 if __name__ == '__main__':
   FLAGS, unparsed = parser.parse_known_args()
   #test()
+  #test_batch()
   print(kaggle_test())
