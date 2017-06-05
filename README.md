@@ -18,4 +18,5 @@ cifar10Dataset/dog
 1) Add support for handling png images - Done
 2) Add batching support - Done
 3) Support for saving and reloading model for inference - Done
+4) Support for adding distortions to images while training - Done
 
