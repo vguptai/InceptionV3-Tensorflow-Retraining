@@ -15,4 +15,7 @@ cifar10Dataset/dog
 
 <b> ToDo </b>
 
-1) Add support for handling png images
+1) Add support for handling png images - Done
+2) Add batching support - Done
+3) Support for saving and reloading model for inference - Done
+
