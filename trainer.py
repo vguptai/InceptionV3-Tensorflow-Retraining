@@ -29,7 +29,7 @@ def train_an_epoch(sess,inceptionV3,datasetBatcher,FLAGS):
             train_bottlenecks = DatasetManager.get_random_distorted_bottlenecks(sess,train_image_paths,inceptionV3)
         else:
             train_bottlenecks = DatasetManager.get_random_cached_bottlenecks_new(sess,train_image_paths,train_labels,FLAGS.bottleneck_dir,inceptionV3)
-        inceptionV3.train_step(sess,train_bottlenecks,train_ground_truth)
+        inceptionV3.train_step(sess,train_bottlenecks,train_ground_truth,FLAGS.dropout_keep_rate)
         train_image_paths,train_ground_truth,train_labels = datasetBatcher.get_next_training_batch(FLAGS.train_batch_size)
     datasetBatcher.reset_training_offset()
 
@@ -77,6 +77,7 @@ def train_graph(inceptionV3,datasetBatcher,FLAGS):
         start_time = str(int(time.time()))
         init = tf.global_variables_initializer()
         sess.run(init)
+        print "Training the model with dropout rate:" + str(FLAGS.dropout_keep_rate)
         for i in range(FLAGS.how_many_training_steps):
             print "Epoch..."+str(i)+"/"+str(FLAGS.how_many_training_steps)
             train_an_epoch(sess,inceptionV3,datasetBatcher,FLAGS)
@@ -217,6 +218,14 @@ if __name__ == '__main__':
       The name of the output classification layer in the retrained graph.\
       """
   )
+  parser.add_argument(
+      '--dropout_keep_rate',
+      type=float,
+      default=0.5,
+      help="""\
+      Dropout rate used while training
+      """
+    )
   parser.add_argument(
       '--apply_distortions',
       default=False,

@@ -15,6 +15,7 @@ class InceptionV3:
 	jpeg_data_tensor = None
 	distortion_image_data_input_placeholder = None
 	distort_image_data_operation = None
+	keep_rate = 0.9
 
 	def __init__(self,modelPath):
 		self._create_inception_graph(modelPath)
@@ -31,16 +32,31 @@ class InceptionV3:
 			with tf.name_scope('input'):
 			    self.bottleneckInput = tf.placeholder_with_default(self.bottleneckTensor, shape=[None, BOTTLENECK_TENSOR_SIZE],name='BottleneckInputPlaceholder')
 			    self.groundTruthInput = tf.placeholder(tf.float32,[None, class_count],name='GroundTruthInput')
+			    self.keep_rate = tf.placeholder(tf.float32)
+
+			layer_name = 'final_minus_2_training_ops'
+			with tf.name_scope(layer_name):
+				with tf.name_scope('weights'):
+					initial_value_final_minus_2 = tf.truncated_normal([BOTTLENECK_TENSOR_SIZE, FINAL_MINUS_2_LAYER_SIZE],stddev=0.001)
+					layer_weights_final_minus_2 = tf.Variable(initial_value_final_minus_2, name='final_weights')
+				with tf.name_scope('biases'):
+					layer_biases_final_minus_2 = tf.Variable(tf.zeros([FINAL_MINUS_2_LAYER_SIZE]), name='final_biases')
+				with tf.name_scope('Wx_plus_b'):
+					logits_final_minus_2 = tf.matmul(self.bottleneckInput, layer_weights_final_minus_2) + layer_biases_final_minus_2
+					logits_final_minus_2 = tf.nn.relu(logits_final_minus_2)
+					logits_final_minus_2 = tf.nn.dropout(logits_final_minus_2, self.keep_rate)
 
 			layer_name = 'final_minus_1_training_ops'
 			with tf.name_scope(layer_name):
 				with tf.name_scope('weights'):
-					initial_value_final_minus_1 = tf.truncated_normal([BOTTLENECK_TENSOR_SIZE, FINAL_MINUS_1_LAYER_SIZE],stddev=0.001)
+					initial_value_final_minus_1 = tf.truncated_normal([FINAL_MINUS_2_LAYER_SIZE, FINAL_MINUS_1_LAYER_SIZE],stddev=0.001)
 					layer_weights_final_minus_1 = tf.Variable(initial_value_final_minus_1, name='final_weights')
 				with tf.name_scope('biases'):
 					layer_biases_final_minus_1 = tf.Variable(tf.zeros([FINAL_MINUS_1_LAYER_SIZE]), name='final_biases')
 				with tf.name_scope('Wx_plus_b'):
-					logits_final_minus_1 = tf.matmul(self.bottleneckInput, layer_weights_final_minus_1) + layer_biases_final_minus_1
+					logits_final_minus_1 = tf.matmul(logits_final_minus_2, layer_weights_final_minus_1) + layer_biases_final_minus_1
+					logits_final_minus_1 = tf.nn.relu(logits_final_minus_1)
+					logits_final_minus_1 = tf.nn.dropout(logits_final_minus_1, self.keep_rate)
 
 			layer_name = 'final_training_ops'
 			with tf.name_scope(layer_name):
@@ -50,7 +66,7 @@ class InceptionV3:
 			    with tf.name_scope('biases'):
 			      	layer_biases = tf.Variable(tf.zeros([class_count]), name='final_biases')
 			    with tf.name_scope('Wx_plus_b'):
-			      	logits = tf.matmul(logits_final_minus_1, layer_weights) + layer_biases
+					logits = tf.matmul(logits_final_minus_1, layer_weights) + layer_biases
 
 			self.finalTensor = tf.nn.softmax(logits, name=final_tensor_name)
 			with tf.name_scope('cross_entropy'):
@@ -72,11 +88,11 @@ class InceptionV3:
 				self.evaluationStep = tf.reduce_mean(tf.cast(correctPrediction, tf.float32))
 			return self.evaluationStep, prediction
 
-	def train_step(self,sess,train_bottlenecks,train_ground_truth):
-		sess.run([self.trainStep],feed_dict={self.bottleneckInput: train_bottlenecks,self.groundTruthInput: train_ground_truth})
+	def train_step(self,sess,train_bottlenecks,train_ground_truth,dropout_keep_rate):
+		sess.run([self.trainStep],feed_dict={self.bottleneckInput: train_bottlenecks,self.groundTruthInput: train_ground_truth,self.keep_rate:dropout_keep_rate})
 
 	def evaluate(self,sess,data_bottlenecks,data_ground_truth):
-		accuracy, crossEntropyValue = sess.run([self.evaluationStep, self.cross_entropy_mean],feed_dict={self.bottleneckInput: data_bottlenecks,self.groundTruthInput: data_ground_truth})
+		accuracy, crossEntropyValue = sess.run([self.evaluationStep, self.cross_entropy_mean],feed_dict={self.bottleneckInput: data_bottlenecks,self.groundTruthInput: data_ground_truth, self.keep_rate:1})
 		return accuracy,crossEntropyValue
 
 	def run_bottleneck_on_image(self,sess, image_data):
