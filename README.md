@@ -4,6 +4,16 @@ This repository is inspired by the [Image Retraining](https://github.com/tensorf
 
 The code adds untrained (depending on the number of classes) fully connected layers to the loaded InceptionV3 graph. The loaded InceptionV3 model is NOT FINE TUNED. It is only used to generate the features for the images. However, the fully connected layers are trained.
 
+Run the following script to train the network.
+```python
+python trainer.py
+```
+
+Run the following script for testing the network.
+```python
+python tester.py
+```
+
 <b> Dataset </b>
 
 The code expects the data to be organized in a parent folder with images of different classes in different folders.
