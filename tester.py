@@ -18,7 +18,10 @@ parser.add_argument(
 parser.add_argument(
     '--path_to_graph',
     type=str,
-    default='./tmp/output_graph/1496559461/model_94.4044449329_90.8400014639.pb',
+    default='./tmp/output_graph/1496918099/model_99.8622210953_91.4600023031.pb',
+    #default='./tmp/output_graph/1496818169/model_98.5133332544_91.0000015497.pb',
+    #default='./tmp/output_graph/1496748387/model_94.6555585199_91.2000020742.pb',
+    #default= './tmp/output_graph/1496559461/model_94.4044449329_90.8400014639.pb',
     help='Absolute path to graph file (.pb)')
 
 parser.add_argument(
@@ -40,10 +43,15 @@ def load_image(image_path):
 
 def load_graph(filename):
   """Unpersists graph from file as default graph."""
+  print "Loading the graph..."
   with tf.gfile.FastGFile(filename, 'rb') as f:
     graph_def = tf.GraphDef()
     graph_def.ParseFromString(f.read())
     tf.import_graph_def(graph_def, name='')
+  for op in tf.get_default_graph().get_operations():
+    print str(op.name)
+    #print str(op.values)
+  print "Graph loaded..."
 
 def load_labels(filename):
   """Read in labels, one label per line."""
@@ -57,7 +65,7 @@ def run_graph(sess, image_data, labels, input_layer_name, output_layer_name,
     #   dimension represents the input image count, and the other has
     #   predictions per class
     softmax_tensor = sess.graph.get_tensor_by_name(output_layer_name)
-    predictions, = sess.run(softmax_tensor, {input_layer_name: image_data})
+    predictions, = sess.run(softmax_tensor, {input_layer_name: image_data, "input/dropout_keep_rate:0":1.0})
     # Sort to show labels in order of confidence
     # sort the prediction array along last axis (columns) in ascending order and then take
     # top K which would be at the last of this array as it is sorted in increasing order
@@ -114,7 +122,7 @@ def test():
     labels = load_labels(FLAGS.labels)
     load_graph(FLAGS.path_to_graph)
     with tf.Session() as sess:
-        label_a_file(sess,file_path,labels,FLAGS)
+        return label_a_file(sess,file_path,labels,FLAGS)
 
 """
 Classify the images present in the test folder and dump the results
@@ -155,6 +163,6 @@ def createKaggleSubmissionFile(label_map):
 
 if __name__ == '__main__':
   FLAGS, unparsed = parser.parse_known_args()
-  #test()
+  #print(test())
   #test_batch()
   print(kaggle_test())

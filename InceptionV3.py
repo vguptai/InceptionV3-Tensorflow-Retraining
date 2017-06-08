@@ -16,6 +16,8 @@ class InceptionV3:
 	distortion_image_data_input_placeholder = None
 	distort_image_data_operation = None
 	keep_rate = 0.9
+	learning_rate = None
+	global_step = None
 
 	def __init__(self,modelPath):
 		self._create_inception_graph(modelPath)
@@ -27,36 +29,49 @@ class InceptionV3:
 					graph_def.ParseFromString(f.read())
 					self.bottleneckTensor, self.jpeg_data_tensor, resized_input_tensor, self.decoded_jpeg_data_tensor = (tf.import_graph_def(graph_def, name='', return_elements=[BOTTLENECK_TENSOR_NAME, JPEG_DATA_TENSOR_NAME,RESIZED_INPUT_TENSOR_NAME,DECODED_JPEG_DATA_TENSOR_NAME]))
 
-	def add_final_training_ops(self,class_count, final_tensor_name, learningRate):
+
+	def create_learning_rate(self,FLAGS,global_step,num_batches_per_epoch):
+		if FLAGS.learning_rate_type == "const":
+			print "Setting up a constant learning rate:"+str(FLAGS.learning_rate)
+			self.learning_rate = FLAGS.learning_rate
+		elif FLAGS.learning_rate_type == "exp_decay":
+			decay_steps = int(num_batches_per_epoch * FLAGS.num_epochs_per_decay)
+			print "Setting up an exponentially decaying learning rate:"+str(FLAGS.learning_rate)+":"+str(decay_steps)+":"+str(FLAGS.learning_rate_decay_factor)
+			self.learning_rate = tf.train.exponential_decay(FLAGS.learning_rate,global_step,decay_steps,FLAGS.learning_rate_decay_factor,staircase=True)
+		else:
+			raise ValueError('Incorrect Learning Rate Type...')
+
+
+	def add_final_training_ops(self,class_count, final_tensor_name, optimizer_name, num_batches_per_epoch, FLAGS):
 		with self.inceptionGraph.as_default():
 			with tf.name_scope('input'):
 			    self.bottleneckInput = tf.placeholder_with_default(self.bottleneckTensor, shape=[None, BOTTLENECK_TENSOR_SIZE],name='BottleneckInputPlaceholder')
 			    self.groundTruthInput = tf.placeholder(tf.float32,[None, class_count],name='GroundTruthInput')
-			    self.keep_rate = tf.placeholder(tf.float32)
+			    self.keep_rate = tf.placeholder(tf.float32, name='dropout_keep_rate')
 
-			layer_name = 'final_minus_2_training_ops'
-			with tf.name_scope(layer_name):
-				with tf.name_scope('weights'):
-					initial_value_final_minus_2 = tf.truncated_normal([BOTTLENECK_TENSOR_SIZE, FINAL_MINUS_2_LAYER_SIZE],stddev=0.001)
-					layer_weights_final_minus_2 = tf.Variable(initial_value_final_minus_2, name='final_weights')
-				with tf.name_scope('biases'):
-					layer_biases_final_minus_2 = tf.Variable(tf.zeros([FINAL_MINUS_2_LAYER_SIZE]), name='final_biases')
-				with tf.name_scope('Wx_plus_b'):
-					logits_final_minus_2 = tf.matmul(self.bottleneckInput, layer_weights_final_minus_2) + layer_biases_final_minus_2
-					logits_final_minus_2 = tf.nn.relu(logits_final_minus_2)
-					logits_final_minus_2 = tf.nn.dropout(logits_final_minus_2, self.keep_rate)
+			# layer_name = 'final_minus_2_training_ops'
+			# with tf.name_scope(layer_name):
+			# 	with tf.name_scope('weights'):
+			# 		initial_value_final_minus_2 = tf.truncated_normal([BOTTLENECK_TENSOR_SIZE, FINAL_MINUS_2_LAYER_SIZE],stddev=0.001)
+			# 		layer_weights_final_minus_2 = tf.Variable(initial_value_final_minus_2, name='final_weights')
+			# 	with tf.name_scope('biases'):
+			# 		layer_biases_final_minus_2 = tf.Variable(tf.zeros([FINAL_MINUS_2_LAYER_SIZE]), name='final_biases')
+			# 	with tf.name_scope('Wx_plus_b'):
+			# 		logits_final_minus_2 = tf.matmul(self.bottleneckInput, layer_weights_final_minus_2) + layer_biases_final_minus_2
+			# 		logits_final_minus_2 = tf.nn.relu(logits_final_minus_2)
+			# 		logits_final_minus_2 = tf.nn.dropout(logits_final_minus_2, self.keep_rate)
 
 			layer_name = 'final_minus_1_training_ops'
 			with tf.name_scope(layer_name):
 				with tf.name_scope('weights'):
-					initial_value_final_minus_1 = tf.truncated_normal([FINAL_MINUS_2_LAYER_SIZE, FINAL_MINUS_1_LAYER_SIZE],stddev=0.001)
+					initial_value_final_minus_1 = tf.truncated_normal([BOTTLENECK_TENSOR_SIZE, FINAL_MINUS_1_LAYER_SIZE],stddev=0.001)
 					layer_weights_final_minus_1 = tf.Variable(initial_value_final_minus_1, name='final_weights')
 				with tf.name_scope('biases'):
 					layer_biases_final_minus_1 = tf.Variable(tf.zeros([FINAL_MINUS_1_LAYER_SIZE]), name='final_biases')
 				with tf.name_scope('Wx_plus_b'):
-					logits_final_minus_1 = tf.matmul(logits_final_minus_2, layer_weights_final_minus_1) + layer_biases_final_minus_1
+					logits_final_minus_1 = tf.matmul(self.bottleneckInput, layer_weights_final_minus_1) + layer_biases_final_minus_1
 					logits_final_minus_1 = tf.nn.relu(logits_final_minus_1)
-					logits_final_minus_1 = tf.nn.dropout(logits_final_minus_1, self.keep_rate)
+					logits_final_minus_1 = tf.nn.dropout(logits_final_minus_1, self.keep_rate, name='final_minus_1_training_ops_dropout')
 
 			layer_name = 'final_training_ops'
 			with tf.name_scope(layer_name):
@@ -74,9 +89,19 @@ class InceptionV3:
 			    	with tf.name_scope('total'):
 			    		self.cross_entropy_mean = tf.reduce_mean(self.cross_entropy)
 
+			self.global_step = tf.Variable(0, name='global_step', trainable=False)
+			self.create_learning_rate(FLAGS,self.global_step,num_batches_per_epoch)
+
 			with tf.name_scope('train'):
-				optimizer = tf.train.GradientDescentOptimizer(learningRate)
-			    	self.trainStep = optimizer.minimize(self.cross_entropy_mean)
+				if optimizer_name == "sgd":
+					optimizer = tf.train.GradientDescentOptimizer(learning_rate=self.learning_rate)
+				elif optimizer_name == "adam":
+					optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
+				elif optimizer_name == "rmsprop":
+					optimizer = tf.train.RMSPropOptimizer(self.learning_rate,FLAGS.rmsprop_decay,momentum=FLAGS.rmsprop_momentum,epsilon=FLAGS.rmsprop_epsilon)
+				else:
+					raise ValueError('Incorrect Optimizer Type...')
+				self.trainStep = optimizer.minimize(self.cross_entropy_mean,global_step=self.global_step)
 
 	def add_evaluation_step(self):
 		with self.inceptionGraph.as_default():
@@ -89,6 +114,7 @@ class InceptionV3:
 			return self.evaluationStep, prediction
 
 	def train_step(self,sess,train_bottlenecks,train_ground_truth,dropout_keep_rate):
+		#print self.global_step.eval()
 		sess.run([self.trainStep],feed_dict={self.bottleneckInput: train_bottlenecks,self.groundTruthInput: train_ground_truth,self.keep_rate:dropout_keep_rate})
 
 	def evaluate(self,sess,data_bottlenecks,data_ground_truth):

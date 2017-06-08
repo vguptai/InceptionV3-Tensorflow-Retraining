@@ -145,3 +145,6 @@ class DatasetBatcher:
             image_paths,labels_matrix,labels = self._create_next_batch_(batch_size,self.validation_data_offset,self.validation_images,self.validation_labels_one_hot_vector,self.validation_class_label)
             self.validation_data_offset = self.validation_data_offset+batch_size
         return image_paths,labels_matrix,labels
+
+    def number_of_training_batches(self,batch_size):
+        return int(len(self.training_images)/batch_size)

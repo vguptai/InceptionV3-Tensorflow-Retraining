@@ -10,10 +10,10 @@ from tensorflow.python.framework import graph_util
 import time
 from osUtils import *
 
-def create_inception_graph(numClasses,FLAGS):
+def create_inception_graph(num_classes,num_batches_per_epoch,FLAGS):
     modelFilePath = os.path.join(FLAGS.imagenet_inception_model_dir, INCEPTION_MODEL_GRAPH_DEF_FILE)
     inceptionV3 = InceptionV3(modelFilePath)
-    inceptionV3.add_final_training_ops(numClasses,FLAGS.final_tensor_name,FLAGS.learning_rate)
+    inceptionV3.add_final_training_ops(num_classes,FLAGS.final_tensor_name,FLAGS.optimizer_name,num_batches_per_epoch, FLAGS)
     inceptionV3.add_evaluation_step()
     return inceptionV3
 
@@ -133,10 +133,52 @@ if __name__ == '__main__':
       help='How many training steps to run before ending.'
   )
   parser.add_argument(
+      '--optimizer_name',
+      type=str,
+      default="sgd",
+      help='Optimizer to be used: sgd,adam,rmsprop'
+  )
+  parser.add_argument(
+      '--learning_rate_decay_factor',
+      type=float,
+      default="0.16",
+      help='Learning rate decay factor.'
+  )
+  parser.add_argument(
       '--learning_rate',
       type=float,
-      default=0.01,
-      help='How large a learning rate to use when training.'
+      default=0.1,
+      help='Initial learning rate.'
+  )
+  parser.add_argument(
+      '--rmsprop_decay',
+      type=float,
+      default=0.9,
+      help='Decay term for RMSProp.'
+  )
+  parser.add_argument(
+      '--rmsprop_momentum',
+      type=float,
+      default=0.9,
+      help='Momentum in RMSProp.'
+  )
+  parser.add_argument(
+      '--rmsprop_epsilon',
+      type=float,
+      default=1.0,
+      help='Epsilon term for RMSProp.'
+  )
+  parser.add_argument(
+      '--num_epochs_per_decay',
+      type=int,
+      default=30,
+      help='Epochs after which learning rate decays.'
+  )
+  parser.add_argument(
+      '--learning_rate_type',
+      type=str,
+      default="exp_decay",
+      help='exp_decay,const'
   )
   parser.add_argument(
       '--testing_percentage',
@@ -276,8 +318,9 @@ if __name__ == '__main__':
   numClasses = len(imageMap.keys())
 
   datasetBatcher = DatasetBatcher(imageMap,FLAGS.image_dir)
+  num_training_batches = datasetBatcher.number_of_training_batches(FLAGS.train_batch_size)
 
-  inceptionV3 = create_inception_graph(numClasses,FLAGS)
+  inceptionV3 = create_inception_graph(numClasses,num_training_batches, FLAGS)
   setup_image_distortion_ops(inceptionV3,FLAGS)
 
   train_graph(inceptionV3,datasetBatcher,FLAGS)
