@@ -145,6 +145,12 @@ if __name__ == '__main__':
       help='Learning rate decay factor.'
   )
   parser.add_argument(
+      '--use_batch_normalization',
+      type=bool,
+      default=False,
+      help='Control the use of batch normalization'
+  )
+  parser.add_argument(
       '--learning_rate',
       type=float,
       default=0.1,

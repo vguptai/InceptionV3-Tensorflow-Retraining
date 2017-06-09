@@ -41,6 +41,66 @@ class InceptionV3:
 		else:
 			raise ValueError('Incorrect Learning Rate Type...')
 
+	def _add_non_bn_fully_connected_layer(self,input_to_layer,input_size,output_size,layer_name,keep_rate):
+		with tf.name_scope(layer_name):
+			with tf.name_scope('weights'):
+				initial_value_weights = tf.truncated_normal([input_size, output_size],stddev=0.001)
+				layer_weights = tf.Variable(initial_value_weights, name='final_weights')
+			with tf.name_scope('biases'):
+				layer_biases = tf.Variable(tf.zeros([output_size]), name='final_biases')
+			with tf.name_scope('Wx_plus_b'):
+				logits_bn = tf.matmul(input_to_layer, layer_weights) + layer_biases
+				logits_bn = tf.nn.relu(logits_bn)
+				logits_bn = tf.nn.dropout(logits_bn, keep_rate)
+		return logits_bn
+
+
+	def _add_batch_norm(x,is_training, epsilon=0.001,decay=0.99):
+
+		input_last_dimension = x.get_shape().as_list()[-1]
+		#BN Hyperparams
+		scale = tf.Variable(tf.ones([input_last_dimension]))
+		beta = tf.Variable(tf.zeros([input_last_dimension]))
+		#Population Mean/Variance to be used while testing
+		pop_mean = tf.Variable(tf.zeros([input_last_dimension]), trainable=False)
+		pop_var = tf.Variable(tf.ones([input_last_dimension]), trainable=False)
+
+		if is_training:
+			#Mean and Variance of the logits
+			batch_mean, batch_var = tf.nn.moments(x,[0])
+			train_mean = tf.assign(pop_mean,pop_mean * decay + batch_mean * (1 - decay))
+			train_var = tf.assign(pop_var,pop_var * decay + batch_var * (1 - decay))
+			with tf.control_dependencies([train_mean, train_var]):
+				logits_bn = tf.nn.batch_normalization(x,batch_mean, batch_var, beta, scale, epsilon)
+		else:
+			logits_bn = tf.nn.batch_normalization(x,pop_mean, pop_var, beta, scale, epsilon)
+		return logits_bn
+
+	def _add_bn_fully_connected_layer(self,input_to_layer,input_size,output_size,layer_name,keep_rate,is_training=True):
+		with tf.name_scope(layer_name):
+			with tf.name_scope('weights'):
+				initial_value_weights = tf.truncated_normal([input_size, output_size],stddev=0.001)
+				layer_weights = tf.Variable(initial_value_weights, name='final_weights')
+			with tf.name_scope('biases'):
+				layer_biases = tf.Variable(tf.zeros([output_size]), name='final_biases')
+			with tf.name_scope('Wx_plus_b'):
+				#Calculate the logits
+				logits = tf.matmul(input_to_layer, layer_weights)
+				#Batch Normalization
+				logits_bn = tf.cond(is_training,
+				lambda: self._add_batch_norm(logits,True),
+        		lambda: self._add_batch_norm(logits,False))
+				#Non Linearity
+				logits_bn = tf.nn.relu(logits_bn)
+				#Dropout
+				logits_bn = tf.nn.dropout(logits_bn, keep_rate)
+		return logits_bn
+
+	def _add_fully_connected_layer(self,input_to_layer,input_size,output_size,layer_name,keep_rate,is_training, FLAGS):
+		if FLAGS.use_batch_normalization:
+			return self._add_bn_fully_connected_layer(self.bottleneckInput,BOTTLENECK_TENSOR_SIZE,FINAL_MINUS_2_LAYER_SIZE,layer_name,self.keep_rate)
+		else:
+			return self._add_non_bn_fully_connected_layer(self.bottleneckInput,BOTTLENECK_TENSOR_SIZE,FINAL_MINUS_2_LAYER_SIZE,layer_name,self.keep_rate)
 
 	def add_final_training_ops(self,class_count, final_tensor_name, optimizer_name, num_batches_per_epoch, FLAGS):
 		with self.inceptionGraph.as_default():
@@ -48,30 +108,13 @@ class InceptionV3:
 			    self.bottleneckInput = tf.placeholder_with_default(self.bottleneckTensor, shape=[None, BOTTLENECK_TENSOR_SIZE],name='BottleneckInputPlaceholder')
 			    self.groundTruthInput = tf.placeholder(tf.float32,[None, class_count],name='GroundTruthInput')
 			    self.keep_rate = tf.placeholder(tf.float32, name='dropout_keep_rate')
+				#self.is_training = tf.placeholder(tf.bool,name='is_training')
 
-			# layer_name = 'final_minus_2_training_ops'
-			# with tf.name_scope(layer_name):
-			# 	with tf.name_scope('weights'):
-			# 		initial_value_final_minus_2 = tf.truncated_normal([BOTTLENECK_TENSOR_SIZE, FINAL_MINUS_2_LAYER_SIZE],stddev=0.001)
-			# 		layer_weights_final_minus_2 = tf.Variable(initial_value_final_minus_2, name='final_weights')
-			# 	with tf.name_scope('biases'):
-			# 		layer_biases_final_minus_2 = tf.Variable(tf.zeros([FINAL_MINUS_2_LAYER_SIZE]), name='final_biases')
-			# 	with tf.name_scope('Wx_plus_b'):
-			# 		logits_final_minus_2 = tf.matmul(self.bottleneckInput, layer_weights_final_minus_2) + layer_biases_final_minus_2
-			# 		logits_final_minus_2 = tf.nn.relu(logits_final_minus_2)
-			# 		logits_final_minus_2 = tf.nn.dropout(logits_final_minus_2, self.keep_rate)
+			layer_name = 'final_minus_2_training_ops'
+			logits_final_minus_2 = self._add_fully_connected_layer(self.bottleneckInput,BOTTLENECK_TENSOR_SIZE,FINAL_MINUS_2_LAYER_SIZE,layer_name,self.keep_rate,True,FLAGS)
 
 			layer_name = 'final_minus_1_training_ops'
-			with tf.name_scope(layer_name):
-				with tf.name_scope('weights'):
-					initial_value_final_minus_1 = tf.truncated_normal([BOTTLENECK_TENSOR_SIZE, FINAL_MINUS_1_LAYER_SIZE],stddev=0.001)
-					layer_weights_final_minus_1 = tf.Variable(initial_value_final_minus_1, name='final_weights')
-				with tf.name_scope('biases'):
-					layer_biases_final_minus_1 = tf.Variable(tf.zeros([FINAL_MINUS_1_LAYER_SIZE]), name='final_biases')
-				with tf.name_scope('Wx_plus_b'):
-					logits_final_minus_1 = tf.matmul(self.bottleneckInput, layer_weights_final_minus_1) + layer_biases_final_minus_1
-					logits_final_minus_1 = tf.nn.relu(logits_final_minus_1)
-					logits_final_minus_1 = tf.nn.dropout(logits_final_minus_1, self.keep_rate, name='final_minus_1_training_ops_dropout')
+			logits_final_minus_1 = self._add_fully_connected_layer(logits_final_minus_2,FINAL_MINUS_2_LAYER_SIZE,FINAL_MINUS_1_LAYER_SIZE,layer_name,self.keep_rate,True,FLAGS)
 
 			layer_name = 'final_training_ops'
 			with tf.name_scope(layer_name):
