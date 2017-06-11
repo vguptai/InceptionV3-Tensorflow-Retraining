@@ -276,7 +276,7 @@ if __name__ == '__main__':
     )
   parser.add_argument(
       '--apply_distortions',
-      default=False,
+      default=True,
       help="""\
       Apply distortions to images while training.\
       """
