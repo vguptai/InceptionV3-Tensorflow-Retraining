@@ -22,7 +22,7 @@ def setup_image_distortion_ops(inceptionV3,FLAGS):
         inceptionV3.add_input_distortions(FLAGS.flip_left_right, FLAGS.random_crop,FLAGS.random_scale, FLAGS.random_brightness)
 
 def train_an_epoch(sess,inceptionV3,datasetBatcher,FLAGS):
-    datasetBatcher.reset_training_offset()
+    datasetBatcher.reset_training_offset(FLAGS.shuffle_dataset_every_epoch)
     train_image_paths,train_ground_truth,train_labels = datasetBatcher.get_next_training_batch(FLAGS.train_batch_size)
     while train_image_paths is not None:
         if DatasetManager.should_distort_images(FLAGS):
@@ -147,7 +147,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--use_batch_normalization',
       type=bool,
-      default=False,
+      default=True,
       help='Control the use of batch normalization'
   )
   parser.add_argument(
@@ -279,6 +279,13 @@ if __name__ == '__main__':
       default=False,
       help="""\
       Apply distortions to images while training.\
+      """
+  )
+  parser.add_argument(
+      '--shuffle_dataset_every_epoch',
+      default=True,
+      help="""\
+      Shuffle the training dataset at every epoch.\
       """
   )
   parser.add_argument(

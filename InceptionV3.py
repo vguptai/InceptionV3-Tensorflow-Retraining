@@ -18,6 +18,7 @@ class InceptionV3:
 	keep_rate = 0.9
 	learning_rate = None
 	global_step = None
+	is_training = None
 
 	def __init__(self,modelPath):
 		self._create_inception_graph(modelPath)
@@ -55,28 +56,31 @@ class InceptionV3:
 		return logits_bn
 
 
-	def _add_batch_norm(x,is_training, epsilon=0.001,decay=0.99):
+	def _add_batch_norm(self,scope,x,is_training,reuse=None,epsilon=0.001,decay=0.99):
+		with tf.variable_scope(scope,reuse=reuse):
+			input_last_dimension = x.get_shape().as_list()[-1]
+			#BN Hyperparams
+			scale = tf.get_variable("scale", input_last_dimension, initializer=tf.constant_initializer(1.0), trainable=True)
+			beta = tf.get_variable("beta", input_last_dimension, initializer=tf.constant_initializer(0.0), trainable=True)
+			#Population Mean/Variance to be used while testing
+			pop_mean = tf.get_variable("pop_mean",input_last_dimension, initializer=tf.constant_initializer(0.0), trainable=False)
+			pop_var = tf.get_variable("pop_var", input_last_dimension, initializer=tf.constant_initializer(1.0), trainable=False)
 
-		input_last_dimension = x.get_shape().as_list()[-1]
-		#BN Hyperparams
-		scale = tf.Variable(tf.ones([input_last_dimension]))
-		beta = tf.Variable(tf.zeros([input_last_dimension]))
-		#Population Mean/Variance to be used while testing
-		pop_mean = tf.Variable(tf.zeros([input_last_dimension]), trainable=False)
-		pop_var = tf.Variable(tf.ones([input_last_dimension]), trainable=False)
+			if is_training:
+				#Mean and Variance of the logits
+				batch_mean, batch_var = tf.nn.moments(x,range(len(x.get_shape().as_list())-1))
+				train_mean = tf.assign(pop_mean,pop_mean * decay + batch_mean * (1 - decay))
+				train_var = tf.assign(pop_var,pop_var * decay + batch_var * (1 - decay))
+				with tf.control_dependencies([train_mean, train_var]):
+					logits_bn = tf.nn.batch_normalization(x,batch_mean, batch_var, beta, scale, epsilon)
+			else:
+				logits_bn = tf.nn.batch_normalization(x,pop_mean, pop_var, beta, scale, epsilon)
+			return logits_bn
 
-		if is_training:
-			#Mean and Variance of the logits
-			batch_mean, batch_var = tf.nn.moments(x,[0])
-			train_mean = tf.assign(pop_mean,pop_mean * decay + batch_mean * (1 - decay))
-			train_var = tf.assign(pop_var,pop_var * decay + batch_var * (1 - decay))
-			with tf.control_dependencies([train_mean, train_var]):
-				logits_bn = tf.nn.batch_normalization(x,batch_mean, batch_var, beta, scale, epsilon)
-		else:
-			logits_bn = tf.nn.batch_normalization(x,pop_mean, pop_var, beta, scale, epsilon)
-		return logits_bn
+	def _add_contrib_batch_norm_layer(self,scope,x,is_training,decay=0.99):
+		return tf.contrib.layers.batch_norm(x,decay=decay, is_training=is_training,updates_collections=None,scope=scope,reuse=True,center=True)
 
-	def _add_bn_fully_connected_layer(self,input_to_layer,input_size,output_size,layer_name,keep_rate,is_training=True):
+	def _add_contrib_bn_fully_connected_layer(self,input_to_layer,input_size,output_size,layer_name,keep_rate,is_training):
 		with tf.name_scope(layer_name):
 			with tf.name_scope('weights'):
 				initial_value_weights = tf.truncated_normal([input_size, output_size],stddev=0.001)
@@ -86,35 +90,57 @@ class InceptionV3:
 			with tf.name_scope('Wx_plus_b'):
 				#Calculate the logits
 				logits = tf.matmul(input_to_layer, layer_weights)
+			with tf.name_scope('batch_norm') as scope:
+				#Batch Normalization
+				logits_bn = self._add_contrib_batch_norm_layer(scope,logits,is_training)
+			#Non Linearity
+			logits_bn = tf.nn.relu(logits_bn)
+			#Dropout
+			logits_bn = tf.nn.dropout(logits_bn, keep_rate)
+		return logits_bn
+
+	def _add_bn_fully_connected_layer(self,input_to_layer,input_size,output_size,layer_name,keep_rate,is_training):
+		with tf.name_scope(layer_name):
+			with tf.name_scope('weights'):
+				initial_value_weights = tf.truncated_normal([input_size, output_size],stddev=0.001)
+				layer_weights = tf.Variable(initial_value_weights, name='final_weights')
+			with tf.name_scope('biases'):
+				layer_biases = tf.Variable(tf.zeros([output_size]), name='final_biases')
+			with tf.name_scope('Wx_plus_b'):
+				#Calculate the logits
+				logits = tf.matmul(input_to_layer, layer_weights)
+			with tf.name_scope('batch_norm') as scope:
 				#Batch Normalization
 				logits_bn = tf.cond(is_training,
-				lambda: self._add_batch_norm(logits,True),
-        		lambda: self._add_batch_norm(logits,False))
-				#Non Linearity
-				logits_bn = tf.nn.relu(logits_bn)
-				#Dropout
-				logits_bn = tf.nn.dropout(logits_bn, keep_rate)
+				lambda: self._add_batch_norm(scope,logits,True,None),
+        		lambda: self._add_batch_norm(scope,logits,False,True))
+			#Non Linearity
+			logits_bn = tf.nn.relu(logits_bn)
+			#Dropout
+			logits_bn = tf.nn.dropout(logits_bn, keep_rate)
 		return logits_bn
 
 	def _add_fully_connected_layer(self,input_to_layer,input_size,output_size,layer_name,keep_rate,is_training, FLAGS):
 		if FLAGS.use_batch_normalization:
-			return self._add_bn_fully_connected_layer(self.bottleneckInput,BOTTLENECK_TENSOR_SIZE,FINAL_MINUS_2_LAYER_SIZE,layer_name,self.keep_rate)
+			print "Batch normalization is turned on..."
+			return self._add_contrib_bn_fully_connected_layer(input_to_layer,input_size,output_size,layer_name,keep_rate,is_training)
 		else:
-			return self._add_non_bn_fully_connected_layer(self.bottleneckInput,BOTTLENECK_TENSOR_SIZE,FINAL_MINUS_2_LAYER_SIZE,layer_name,self.keep_rate)
+			print "Batch normalization is turned off..."
+			return self._add_non_bn_fully_connected_layer(input_to_layer,input_size,output_size,layer_name,keep_rate,is_training)
 
 	def add_final_training_ops(self,class_count, final_tensor_name, optimizer_name, num_batches_per_epoch, FLAGS):
 		with self.inceptionGraph.as_default():
 			with tf.name_scope('input'):
-			    self.bottleneckInput = tf.placeholder_with_default(self.bottleneckTensor, shape=[None, BOTTLENECK_TENSOR_SIZE],name='BottleneckInputPlaceholder')
-			    self.groundTruthInput = tf.placeholder(tf.float32,[None, class_count],name='GroundTruthInput')
-			    self.keep_rate = tf.placeholder(tf.float32, name='dropout_keep_rate')
-				#self.is_training = tf.placeholder(tf.bool,name='is_training')
+				self.bottleneckInput = tf.placeholder_with_default(self.bottleneckTensor, shape=[None, BOTTLENECK_TENSOR_SIZE],name='BottleneckInputPlaceholder')
+				self.groundTruthInput = tf.placeholder(tf.float32,[None, class_count],name='GroundTruthInput')
+				self.keep_rate = tf.placeholder(tf.float32, name='dropout_keep_rate')
+				self.is_training_ph = tf.placeholder(tf.bool, name='is_training_ph')
 
 			layer_name = 'final_minus_2_training_ops'
-			logits_final_minus_2 = self._add_fully_connected_layer(self.bottleneckInput,BOTTLENECK_TENSOR_SIZE,FINAL_MINUS_2_LAYER_SIZE,layer_name,self.keep_rate,True,FLAGS)
+			logits_final_minus_2 = self._add_fully_connected_layer(self.bottleneckInput,BOTTLENECK_TENSOR_SIZE,FINAL_MINUS_2_LAYER_SIZE,layer_name,self.keep_rate,self.is_training_ph,FLAGS)
 
 			layer_name = 'final_minus_1_training_ops'
-			logits_final_minus_1 = self._add_fully_connected_layer(logits_final_minus_2,FINAL_MINUS_2_LAYER_SIZE,FINAL_MINUS_1_LAYER_SIZE,layer_name,self.keep_rate,True,FLAGS)
+			logits_final_minus_1 = self._add_fully_connected_layer(logits_final_minus_2,FINAL_MINUS_2_LAYER_SIZE,FINAL_MINUS_1_LAYER_SIZE,layer_name,self.keep_rate,self.is_training_ph,FLAGS)
 
 			layer_name = 'final_training_ops'
 			with tf.name_scope(layer_name):
@@ -158,10 +184,10 @@ class InceptionV3:
 
 	def train_step(self,sess,train_bottlenecks,train_ground_truth,dropout_keep_rate):
 		#print self.global_step.eval()
-		sess.run([self.trainStep],feed_dict={self.bottleneckInput: train_bottlenecks,self.groundTruthInput: train_ground_truth,self.keep_rate:dropout_keep_rate})
+		sess.run([self.trainStep],feed_dict={self.bottleneckInput: train_bottlenecks,self.groundTruthInput: train_ground_truth, self.keep_rate:dropout_keep_rate, self.is_training_ph:True})
 
 	def evaluate(self,sess,data_bottlenecks,data_ground_truth):
-		accuracy, crossEntropyValue = sess.run([self.evaluationStep, self.cross_entropy_mean],feed_dict={self.bottleneckInput: data_bottlenecks,self.groundTruthInput: data_ground_truth, self.keep_rate:1})
+		accuracy, crossEntropyValue = sess.run([self.evaluationStep, self.cross_entropy_mean],feed_dict={self.bottleneckInput: data_bottlenecks,self.groundTruthInput: data_ground_truth, self.keep_rate:1, self.is_training_ph:False})
 		return accuracy,crossEntropyValue
 
 	def run_bottleneck_on_image(self,sess, image_data):

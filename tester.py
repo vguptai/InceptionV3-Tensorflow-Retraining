@@ -18,7 +18,8 @@ parser.add_argument(
 parser.add_argument(
     '--path_to_graph',
     type=str,
-    default='./tmp/output_graph/1496918099/model_99.8622210953_91.4600023031.pb',
+    default='./tmp/output_graph/1497085585/model_99.9977760712_92.0000025034.pb',
+    #default='./tmp/output_graph/1496918099/model_99.8622210953_91.4600023031.pb',
     #default='./tmp/output_graph/1496818169/model_98.5133332544_91.0000015497.pb',
     #default='./tmp/output_graph/1496748387/model_94.6555585199_91.2000020742.pb',
     #default= './tmp/output_graph/1496559461/model_94.4044449329_90.8400014639.pb',
@@ -41,12 +42,25 @@ def load_image(image_path):
     image_data = image.convert('RGB')
     return image_data
 
+def fix_graph(graph_def):
+    # fix nodes
+    for node in graph_def.node:
+      if node.op == 'RefSwitch':
+        node.op = 'Switch'
+        for index in xrange(len(node.input)):
+          if 'moving_' in node.input[index]:
+            node.input[index] = node.input[index] + '/read'
+      elif node.op == 'AssignSub':
+        node.op = 'Sub'
+        if 'use_locking' in node.attr: del node.attr['use_locking']
+
 def load_graph(filename):
   """Unpersists graph from file as default graph."""
   print "Loading the graph..."
   with tf.gfile.FastGFile(filename, 'rb') as f:
     graph_def = tf.GraphDef()
     graph_def.ParseFromString(f.read())
+    fix_graph(graph_def)
     tf.import_graph_def(graph_def, name='')
   for op in tf.get_default_graph().get_operations():
     print str(op.name)
@@ -65,7 +79,7 @@ def run_graph(sess, image_data, labels, input_layer_name, output_layer_name,
     #   dimension represents the input image count, and the other has
     #   predictions per class
     softmax_tensor = sess.graph.get_tensor_by_name(output_layer_name)
-    predictions, = sess.run(softmax_tensor, {input_layer_name: image_data, "input/dropout_keep_rate:0":1.0})
+    predictions, = sess.run(softmax_tensor, {input_layer_name: image_data, "input/dropout_keep_rate:0":1.0, "input/is_training_ph:0":False})
     # Sort to show labels in order of confidence
     # sort the prediction array along last axis (columns) in ascending order and then take
     # top K which would be at the last of this array as it is sorted in increasing order

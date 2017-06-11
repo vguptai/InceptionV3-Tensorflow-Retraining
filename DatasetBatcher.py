@@ -112,8 +112,10 @@ class DatasetBatcher:
         labels =image_labels[min_index:max_index]
         return image_paths,labels_matrix,labels
 
-    def reset_training_offset(self):
+    def reset_training_offset(self,shuffle=False):
         self.training_data_offset = 0
+        if shuffle:
+            self.training_images,self.training_labels_one_hot_vector,self.training_class_label = self._shuffle(self.training_images,self.training_labels_one_hot_vector,self.training_class_label)
 
     def reset_testing_offset(self):
         self.testing_data_offset = 0
