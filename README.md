@@ -29,3 +29,7 @@ cifar10Dataset/dog
 2) Add batching support - Done
 3) Support for saving and reloading model for inference - Done
 4) Support for adding distortions to images while training - Done
+5) Reshuffle dataset before every epoch - Done
+6) Support for multiple optimizers - Adam,RMSProp,SGD - Done
+7) Support for exponentially decayed learning rate - Done
+8) Batch Normalization - Done
